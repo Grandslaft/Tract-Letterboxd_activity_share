@@ -1,6 +1,6 @@
 # ignore folder with saved graphs
 saved_files
-
+letterboxd_scripts
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

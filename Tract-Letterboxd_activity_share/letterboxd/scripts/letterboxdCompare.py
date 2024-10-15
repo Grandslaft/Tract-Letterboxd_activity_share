@@ -3,45 +3,13 @@ from bs4 import BeautifulSoup
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from shared_functions import (
+    extract_movie_urls, extract_ratings,
+    get_last_page, run_threaded_tasks
+)
+
 # Define the header for the output CSV
 csv_file = "recommendations.csv"
-
-# Function to extract movie URLs and ratings from the ratings page
-def extract_ratings(page_url):
-    response = requests.get(page_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    ratings_data = {}
-    
-    movie_items = soup.find_all('li', class_='poster-container')
-    
-    for li in movie_items:
-        lazy_load_div = li.find('div', class_='really-lazy-load')
-        if lazy_load_div and lazy_load_div.get('data-target-link'):
-            movie_url = "https://letterboxd.com" + lazy_load_div['data-target-link']
-            rating_tag = li.find('span', class_='rating')
-            if rating_tag:
-                rating_class = next((cls for cls in rating_tag['class'] if 'rated-' in cls), None)
-                if rating_class:
-                    letterboxd_rating = float(rating_class.replace('rated-', '')) / 2
-                    ratings_data[movie_url] = letterboxd_rating
-    return ratings_data
-
-# Function to extract watched movies (without ratings)
-def extract_movie_urls(page_url):
-    response = requests.get(page_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    movie_urls = []
-    movie_items = soup.find_all('li', class_='poster-container')
-    
-    for li in movie_items:
-        lazy_load_div = li.find('div', class_='really-lazy-load')
-        if lazy_load_div and lazy_load_div.get('data-target-link'):
-            movie_url = "https://letterboxd.com" + lazy_load_div['data-target-link']
-            movie_urls.append(movie_url)
-    
-    return movie_urls
 
 # Function to get the last page number of the user's watched movies list
 def get_last_page(base_url):
@@ -65,21 +33,19 @@ def crawl_movies_concurrent(user_url, scrape_ratings=False):
 
     # Use ThreadPoolExecutor for concurrent page crawling
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = []
-        for page in range(1, last_page + 1):
-            page_url = f"{user_url}/page/{page}/"
-            if scrape_ratings:
-                futures.append(executor.submit(extract_ratings, page_url))
-            else:
-                futures.append(executor.submit(extract_movie_urls, page_url))
+        task_args_list = [(f"{user_url}/page/{page}/",) for page in range(1, last_page + 1)]
+        if scrape_ratings:
+            threads = run_threaded_tasks(extract_movie_urls, task_args_list, 10)
+        else:
+            threads = run_threaded_tasks(extract_movie_urls, task_args_list, 10)
         
-        # Collect results as they complete
-        for future in as_completed(futures):
-            if scrape_ratings:
-                all_movies.update(future.result())
-            else:
-                movie_urls = future.result()
-                all_movies.update({url: None for url in movie_urls})
+    # Collect results as they complete
+    for thread in as_completed(threads):
+        if scrape_ratings:
+            all_movies.update(thread.result())
+        else:
+            movie_urls = thread.result()
+            all_movies.update({url: None for url in movie_urls})
     
     return all_movies
 
